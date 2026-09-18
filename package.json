@@ -9,6 +9,7 @@
   },
   "scripts": {
     "whatsapp:auth": "node ./plugins/whatsapp-relay/scripts/whatsapp-auth.mjs",
+    "whatsapp:auth:svg": "node ./plugins/whatsapp-relay/scripts/whatsapp-auth-svg.mjs",
     "whatsapp:controller": "node ./plugins/whatsapp-relay/scripts/controller-daemon.mjs",
     "whatsapp:manager": "node ./plugins/whatsapp-relay/scripts/controller-daemon.mjs",
     "whatsapp:install-chatterbox": "node ./plugins/whatsapp-relay/scripts/install-chatterbox.mjs",

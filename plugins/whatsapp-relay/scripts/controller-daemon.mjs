@@ -82,10 +82,7 @@ process.on("SIGINT", () => {
   });
 });
 
-const { bridge, manager, stateStore } = await buildBridge();
-activeBridge = bridge;
-activeManager = manager;
-
+let stateStore = new ControllerStateStore();
 try {
   const ownership = await claimGlobalControllerOwner();
   if (!ownership.acquired) {
@@ -96,15 +93,24 @@ try {
   }
 
   ownsGlobalController = true;
+  const built = await buildBridge();
+  activeBridge = built.bridge;
+  activeManager = built.manager;
+  stateStore = built.stateStore;
+  const { bridge } = built;
   await bridge.start();
   process.stdout.write("WhatsApp relay manager started.\n");
 } catch (error) {
-  await bridge.stop().catch(() => {});
+  const hadOwnership = ownsGlobalController;
+  await activeBridge?.stop().catch(() => {});
+  await activeManager?.stopAll().catch(() => {});
   if (ownsGlobalController) {
     await releaseGlobalControllerOwner().catch(() => {});
     ownsGlobalController = false;
   }
-  await stateStore.clearProcess().catch(() => {});
+  if (hadOwnership) {
+    await stateStore.clearProcess().catch(() => {});
+  }
 
   if (!shuttingDown) {
     console.error(`failed to start WhatsApp controller bridge: ${error.message}`);

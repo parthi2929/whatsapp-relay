@@ -35,6 +35,8 @@ await runtime.start({ printQrToTerminal: true, force: true });
 
 try {
   const socket = await runtime.waitForConnection(5 * 60_000);
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  await runtime.waitForCredentialSave();
   const user = socket.user?.id ?? "unknown";
   await accountStore.updateAccountStatus(accountId, {
     userId: user,
@@ -42,8 +44,10 @@ try {
     connectedAt: new Date().toISOString()
   });
   process.stdout.write(`\nAuthenticated @${accountId} successfully as ${user}.\n`);
-  process.exit(0);
+  await runtime.stop();
+  process.exitCode = 0;
 } catch (error) {
   process.stderr.write(`\nAuthentication failed: ${error.message}\n`);
-  process.exit(1);
+  await runtime.stop().catch(() => {});
+  process.exitCode = 1;
 }

@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -8,8 +7,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   downloadMediaMessage,
-  fetchLatestWaWebVersion,
-  useMultiFileAuthState
+  fetchLatestWaWebVersion
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 
@@ -20,6 +18,11 @@ import {
   normalizeAccountId
 } from "./paths.mjs";
 import { installOutboundMessagePacing } from "./outbound-pacing.mjs";
+import {
+  ensureCredentialIntegrity,
+  hasValidCredentialsSync,
+  useRobustMultiFileAuthState
+} from "./robust-auth-state.mjs";
 import { WhatsAppStore } from "./store.mjs";
 
 const require = createRequire(import.meta.url);
@@ -155,11 +158,14 @@ export class WhatsAppRuntime {
     this.events = new EventEmitter();
     this.socket = null;
     this.startPromise = null;
+    this.credentialWriteTail = Promise.resolve();
+    this.lastCredentialWriteError = null;
+    this.reconnectTimer = null;
     this.shouldRenderQr = false;
     this.closing = false;
     this.state = {
       status: "idle",
-      hasCreds: existsSync(this.paths.credsFile),
+      hasCreds: hasValidCredentialsSync(this.paths.authDir),
       user: null,
       lastQrAt: null,
       currentQrText: null,
@@ -173,11 +179,12 @@ export class WhatsAppRuntime {
 
   async initialize() {
     await ensureAccountRuntimeDirs(this.accountId);
+    await ensureCredentialIntegrity(this.paths.authDir);
     await this.store.load();
   }
 
   hasSavedCreds() {
-    return existsSync(this.paths.credsFile);
+    return hasValidCredentialsSync(this.paths.authDir);
   }
 
   summary() {
@@ -204,7 +211,7 @@ export class WhatsAppRuntime {
 
   async #startInternal({ printQrToTerminal }) {
     await this.initialize();
-    const { state, saveCreds } = await useMultiFileAuthState(this.paths.authDir);
+    const { state, saveCreds } = await useRobustMultiFileAuthState(this.paths.authDir);
     const { version } = await fetchLatestWaWebVersion();
 
     this.state.status = "connecting";
@@ -225,10 +232,22 @@ export class WhatsAppRuntime {
     this.socket = socket;
     this.events.emit("socket.ready", socket);
 
-    socket.ev.on("creds.update", async () => {
-      await saveCreds();
-      this.state.hasCreds = this.hasSavedCreds();
-      this.events.emit("creds.update", this.summary());
+    socket.ev.on("creds.update", () => {
+      this.credentialWriteTail = this.credentialWriteTail
+        .catch(() => {})
+        .then(async () => {
+          await saveCreds();
+          this.lastCredentialWriteError = null;
+          this.state.hasCreds = this.hasSavedCreds();
+          this.events.emit("creds.update", this.summary());
+        })
+        .catch((error) => {
+          this.lastCredentialWriteError = error;
+          console.error(
+            `[credential_guard] failed to save WhatsApp credentials for ${this.accountId}`,
+            error
+          );
+        });
     });
 
     socket.ev.on("messaging-history.set", (payload) => {
@@ -287,6 +306,10 @@ export class WhatsAppRuntime {
       }
 
       if (update.connection === "open") {
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         this.state.status = "connected";
         this.state.user = socket.user ?? null;
         this.state.lastDisconnect = null;
@@ -317,14 +340,19 @@ export class WhatsAppRuntime {
 
         if (
           !this.closing &&
-          code !== DisconnectReason.loggedOut &&
-          code !== DisconnectReason.connectionReplaced
+          code !== DisconnectReason.loggedOut
         ) {
-          setTimeout(() => {
+          if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+          }
+          const reconnectDelay =
+            code === DisconnectReason.connectionReplaced ? 5000 : 1500;
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
             this.start({ printQrToTerminal: false, force: true }).catch((error) => {
               console.error("failed to reconnect WhatsApp runtime", error);
             });
-          }, 1500);
+          }, reconnectDelay);
         }
       }
 
@@ -382,6 +410,10 @@ export class WhatsAppRuntime {
 
   async stop() {
     this.closing = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     const socket = this.socket;
     this.socket = null;
     this.state.status = "stopped";
@@ -389,6 +421,16 @@ export class WhatsAppRuntime {
       socket.end(new Error("WhatsApp runtime stopped."));
     } else if (socket?.ws && typeof socket.ws.close === "function") {
       socket.ws.close();
+    }
+    await delay(250);
+    await this.waitForCredentialSave();
+    await this.store.flush();
+  }
+
+  async waitForCredentialSave() {
+    await this.credentialWriteTail;
+    if (this.lastCredentialWriteError) {
+      throw this.lastCredentialWriteError;
     }
   }
 

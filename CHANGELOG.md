@@ -7,10 +7,14 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Relay-wide outbound pacing for multi-message sends, using cryptographically random 4.00-14.00-second intervals at two-decimal precision and at least 4.00 seconds of separation between consecutive planned intervals.
+- Atomic, validated WhatsApp credential storage with last-known-good recovery and disposable corruption tests.
+- A hidden Windows logon service runbook, installer, and verification script for the `personal`, `business-cbe`, and `business-irl` accounts.
 
 ### Fixed
 
 - Shared runtime sends now inherit pacing automatically, including MCP, controller, split-message, and local runtime batch paths.
+- QR authentication helpers now wait for queued credential writes and stop the socket cleanly before exit.
+- The controller now claims sole ownership before it opens account sockets and reconnects sessions that WhatsApp briefly reports as replaced after a Windows restart.
 
 ## [0.5.0] - 2026-06-06
 
