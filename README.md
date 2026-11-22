@@ -32,7 +32,7 @@ Paste this prompt into Codex:
 Install the WhatsApp Relay plugin globally for my user account.
 
 Use this repository as the source:
-https://github.com/parthi2929/codex-whatsapp-relay
+https://github.com/parthi2929/whatsapp-relay
 
 Install the current release tag:
 v0.5.0

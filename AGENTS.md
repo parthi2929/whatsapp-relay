@@ -52,7 +52,7 @@ When refreshing the locally installed Codex plugin after a release:
 
 1. Reinstall from the release tag, not from a floating branch.
 2. The Codex plugin cache lives under `$env:CODEX_HOME/plugins/cache/personal/whatsapp-relay/<version>`.
-3. Publish and install releases from `https://github.com/parthi2929/codex-whatsapp-relay`.
+3. Publish and install releases from `https://github.com/parthi2929/whatsapp-relay`.
 4. Preserve `data/accounts.json`, `data/accounts/<account>/auth`, each account store, `data/controller-config.json`, and local aliases for all three required accounts.
 5. Keep `controller-state.json` out of the migrated data because it can preserve stale process IDs.
 6. Keep `controller-owner.json` out of the migrated data because it can preserve stale ownership.
@@ -63,7 +63,7 @@ When refreshing the locally installed Codex plugin after a release:
 ## Notes
 
 - The repo's primary branch is `main`.
-- The maintained fork is `https://github.com/parthi2929/codex-whatsapp-relay`.
+- The maintained fork is `https://github.com/parthi2929/whatsapp-relay`.
 - The upstream repository is `https://github.com/abuiles/codex-whatsapp-relay`.
 - Keep plugin metadata and README install instructions aligned with the maintained fork and its release tag.
 - The README install prompt is part of the release surface and must be updated on every new release.
