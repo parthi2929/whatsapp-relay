@@ -88,7 +88,7 @@ async function writeStatus(status, extra = {}) {
   );
 }
 
-async function writeQr(value) {
+async function writeQrSvg(value) {
   const qr = new QRCode(-1, QRErrorCorrectLevel.L);
   qr.addData(value);
   qr.make();
@@ -124,7 +124,7 @@ async function writeQr(value) {
 const runtime = new WhatsAppRuntime({ accountId, logLevel: "error" });
 runtime.on("connection.update", (update) => {
   if (update.qr) {
-    void writeQr(update.qr);
+    void writeQrSvg(update.qr);
   }
   if (update.connection === "open") {
     void writeStatus("connected", { user: runtime.socket?.user?.id ?? null });

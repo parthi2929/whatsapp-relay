@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { readFile as readMediaFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 import {
@@ -29,6 +30,7 @@ import {
 } from "./controller-permissions.mjs";
 import { drainControllerCommands } from "./controller-outbox.mjs";
 import { ControllerStateStore, defaultProjectSession } from "./controller-state.mjs";
+import { assertCompanionSendAllowed, sendMessageWithAck } from "./send-message.mjs";
 import { extractAudioMessage, extractMessageText, extractMessageType } from "./store.mjs";
 import {
   DEFAULT_TRANSCRIPTION_MODEL,
@@ -2063,6 +2065,28 @@ export class WhatsAppControllerBridge {
           accountId: command.payload.accountId ?? this.accountId
         });
         return;
+      case "send_media": {
+        // Added 22nd Nov 2026: send an MP4 as a looping GIF (gifPlayback) or as a video.
+        const media = command?.payload ?? {};
+        if (!media.chatId || typeof media.filePath !== "string" || !media.filePath) {
+          throw invalidControllerCommandError(
+            "Controller send_media command needs payload.chatId and payload.filePath."
+          );
+        }
+        const socket = await this.runtimeForAccount(media.accountId ?? this.accountId).ensureConnected();
+        const content = {
+          video: await readMediaFile(media.filePath),
+          mimetype: "video/mp4",
+          gifPlayback: media.gifPlayback !== false
+        };
+        if (typeof media.caption === "string" && media.caption.trim()) {
+          content.caption = media.caption;
+        }
+        const sent = await sendMessageWithAck(socket, media.chatId, content, { timeoutMs: 60_000 });
+        this.rememberOutgoingMessage(sent.messageId);
+        console.log(`send_media ok: ${media.filePath} -> ${media.chatId} id=${sent.messageId} status=${sent.statusLabel}`);
+        return;
+      }
       default:
         throw invalidControllerCommandError(
           `Unknown controller command type: ${command.type}`
@@ -3814,10 +3838,13 @@ export class WhatsAppControllerBridge {
 
   async sendTextMessage(chatId, text, { accountId = null } = {}) {
     const socket = await this.runtimeForAccount(accountId).ensureConnected();
+    await assertCompanionSendAllowed(socket);
 
     for (const part of splitMessage(text)) {
-      const sent = await socket.sendMessage(chatId, { text: part });
-      this.rememberOutgoingMessage(sent?.key?.id ?? null);
+      const sent = await sendMessageWithAck(socket, chatId, { text: part }, {
+        preflight: false
+      });
+      this.rememberOutgoingMessage(sent.messageId);
     }
   }
 
@@ -3833,7 +3860,7 @@ export class WhatsAppControllerBridge {
       content.seconds = seconds;
     }
 
-    const sent = await socket.sendMessage(chatId, content);
-    this.rememberOutgoingMessage(sent?.key?.id ?? null);
+    const sent = await sendMessageWithAck(socket, chatId, content);
+    this.rememberOutgoingMessage(sent.messageId);
   }
 }

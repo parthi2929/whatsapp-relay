@@ -9,8 +9,12 @@ All notable changes to this project will be documented in this file.
 - Relay-wide outbound pacing for multi-message sends, using cryptographically random 4.00-14.00-second intervals at two-decimal precision and at least 4.00 seconds of separation between consecutive planned intervals.
 - Atomic, validated WhatsApp credential storage with last-known-good recovery and disposable corruption tests.
 - A hidden Windows logon service runbook, installer, and verification script for the `personal`, `business-cbe`, and `business-irl` accounts.
+- Controller outbox command `send_media` (22nd Nov 2026): sends a local MP4 file, as a looping WhatsApp GIF (`gifPlayback`, the default) or as a video, with an optional caption. Payload: `accountId`, `chatId`, `filePath`, `gifPlayback`, `caption`.
+- Server-acknowledged sends (`send-message.mjs`): text, voice-note and media sends wait for the WhatsApp server ack and stop when WhatsApp restricts linked-device sending. Synced from the installed plugin copy of 18th Jul 2026.
 
 ### Fixed
+
+- `sendMessageWithAck` no longer crashes the daemon when the ack timer fires before the caller awaits the promise (slow media upload). The rejection is marked as handled and still reaches the caller.
 
 - Shared runtime sends now inherit pacing automatically, including MCP, controller, split-message, and local runtime batch paths.
 - QR authentication helpers now wait for queued credential writes and stop the socket cleanly before exit.

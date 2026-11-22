@@ -1,6 +1,15 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 
 const DEFAULT_MAX_MESSAGES_PER_CHAT = 200;
+const RAW_MEDIA_MESSAGE_TYPES = new Set([
+  "audioMessage",
+  "documentMessage",
+  "imageMessage",
+  "ptvMessage",
+  "stickerMessage",
+  "videoMessage"
+]);
 
 function emptyStore() {
   return {
@@ -121,6 +130,10 @@ export function extractMessageType(message) {
   return Object.keys(payload)[0] ?? "unknown";
 }
 
+export function isMediaMessageType(messageType) {
+  return RAW_MEDIA_MESSAGE_TYPES.has(messageType);
+}
+
 export function extractAudioMessage(message) {
   const payload = unwrapMessage(message);
   if (!payload?.audioMessage) {
@@ -160,6 +173,7 @@ export class WhatsAppStore {
     this.filePath = filePath;
     this.data = emptyStore();
     this.pendingSave = null;
+    this.saveQueue = Promise.resolve();
   }
 
   async load() {
@@ -185,9 +199,38 @@ export class WhatsAppStore {
     }
   }
 
-  async save() {
+  save() {
+    const run = this.saveQueue.catch(() => {}).then(() => this.#saveAtomic());
+    this.saveQueue = run;
+    return run;
+  }
+
+  async #saveAtomic() {
     this.data.meta.updatedAt = new Date().toISOString();
-    await fs.writeFile(this.filePath, JSON.stringify(this.data, null, 2));
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    const tempFile = path.join(
+      path.dirname(this.filePath),
+      `.${path.basename(this.filePath)}.${process.pid}.${Date.now()}.tmp`
+    );
+
+    try {
+      await fs.writeFile(tempFile, JSON.stringify(this.data, null, 2));
+      await fs.rename(tempFile, this.filePath);
+    } catch (error) {
+      await fs.rm(tempFile, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
+
+  async flush() {
+    if (this.pendingSave) {
+      clearTimeout(this.pendingSave);
+      this.pendingSave = null;
+      await this.save();
+      return;
+    }
+
+    await this.saveQueue;
   }
 
   scheduleSave() {
@@ -308,6 +351,8 @@ export class WhatsAppStore {
     }
 
     const timestamp = normalizeTimestamp(message.messageTimestamp);
+    const text = extractMessageText(message.message);
+    const messageType = extractMessageType(message.message);
     const messageEntry = {
       id: message.key?.id ?? `${remoteJid}:${timestamp ?? Date.now()}`,
       chatId: remoteJid,
@@ -315,8 +360,13 @@ export class WhatsAppStore {
       fromMe: Boolean(message.key?.fromMe),
       pushName: message.pushName ?? null,
       timestamp,
-      text: extractMessageText(message.message),
-      messageType: extractMessageType(message.message)
+      text,
+      messageType,
+      ...(isMediaMessageType(messageType)
+        ? {
+            rawMediaMessage: message
+          }
+        : {})
     };
 
     const list = this.data.messages[remoteJid] ?? [];

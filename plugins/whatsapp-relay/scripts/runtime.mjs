@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 

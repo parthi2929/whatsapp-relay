@@ -7,8 +7,18 @@ import {
   initAuthCreds,
   proto
 } from "@whiskeysockets/baileys";
+import { Mutex } from "async-mutex";
 
-const fileWriteTails = new Map();
+const fileLocks = new Map();
+
+function fileLock(filePath) {
+  let mutex = fileLocks.get(filePath);
+  if (!mutex) {
+    mutex = new Mutex();
+    fileLocks.set(filePath, mutex);
+  }
+  return mutex;
+}
 
 function fixedFileName(file) {
   return file?.replace(/\//g, "__")?.replace(/:/g, "-");
@@ -74,17 +84,6 @@ async function atomicWriteFile(filePath, content) {
   }
 }
 
-function queueFileOperation(filePath, operation) {
-  const previous = fileWriteTails.get(filePath) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(operation);
-  fileWriteTails.set(filePath, current);
-  return current.finally(() => {
-    if (fileWriteTails.get(filePath) === current) {
-      fileWriteTails.delete(filePath);
-    }
-  });
-}
-
 export function credentialsBackupFile(authDir) {
   return path.join(authDir, "creds.last-good.json");
 }
@@ -142,7 +141,8 @@ export async function useRobustMultiFileAuthState(folder) {
 
   const writeData = async (data, file) => {
     const filePath = path.join(folder, fixedFileName(file));
-    return queueFileOperation(filePath, async () => {
+    const mutex = fileLock(filePath);
+    return mutex.runExclusive(async () => {
       const serialized = JSON.stringify(data, BufferJSON.replacer);
       if (file === "creds.json") {
         parseAndValidateCredentials(serialized, filePath);
@@ -163,8 +163,9 @@ export async function useRobustMultiFileAuthState(folder) {
 
   const readData = async (file) => {
     const filePath = path.join(folder, fixedFileName(file));
+    const mutex = fileLock(filePath);
     try {
-      return await queueFileOperation(filePath, async () => {
+      return await mutex.runExclusive(async () => {
         const text = await fsp.readFile(filePath, "utf8");
         return parseJson(text);
       });
@@ -181,7 +182,8 @@ export async function useRobustMultiFileAuthState(folder) {
 
   const removeData = async (file) => {
     const filePath = path.join(folder, fixedFileName(file));
-    await queueFileOperation(filePath, async () => {
+    const mutex = fileLock(filePath);
+    await mutex.runExclusive(async () => {
       await fsp.unlink(filePath).catch((error) => {
         if (error?.code !== "ENOENT") throw error;
       });

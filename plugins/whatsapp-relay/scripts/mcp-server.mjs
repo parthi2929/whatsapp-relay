@@ -17,6 +17,7 @@ import {
 import { defaultAccountId, getAccountPaths, normalizeAccountId } from "./paths.mjs";
 import { resolveJidAliases } from "./jid-aliases.mjs";
 import { WhatsAppRuntime } from "./runtime.mjs";
+import { sendMessageWithAck } from "./send-message.mjs";
 import { normalizeTtsProvider } from "./voice-replier.mjs";
 
 const runtimes = new Map();
@@ -792,8 +793,10 @@ server.tool(
       }
 
       const socket = await runtime.ensureConnected();
-      await socket.sendMessage(chat.id, { text });
-      return textResult(`Sent message to ${chat.displayName} (${chat.id}).`);
+      const sent = await sendMessageWithAck(socket, chat.id, { text });
+      return textResult(
+        `Sent message to ${chat.displayName} (${chat.id}).\nmessage_id: ${sent.messageId}\nstatus: ${sent.statusLabel}`
+      );
     } catch (error) {
       return textResult(error.message, { isError: true });
     }
